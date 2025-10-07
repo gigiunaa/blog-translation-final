@@ -6,7 +6,7 @@ import traceback
 app = Flask(__name__)
 
 # =======================================
-#  ROUTE 1: Extract <body> without styles
+# ROUTE 1: Extract <body> — fully cleaned
 # =======================================
 @app.route("/extract-body", methods=["POST"])
 def extract_body():
@@ -21,19 +21,18 @@ def extract_body():
         if not body:
             return jsonify({"success": False, "error": "No <body> found"}), 400
 
-        # Save original (with styles)
         original_body = str(body)
 
-        # 🧹 Remove inline styles, classes, IDs from all tags INCLUDING <body>
+        # Remove all attributes recursively (style, class, id, data-*, etc.)
         for tag in body.find_all(True):
-            tag.attrs = {}
-        body.attrs = {}  # Also clean the <body> tag itself
+            for attr in list(tag.attrs.keys()):
+                del tag[attr]
 
         clean_body = str(body)
 
         return jsonify({
             "success": True,
-            "clean_body": clean_body,     # send this to Make.com OpenAI module
+            "clean_body": clean_body,
             "original_body": original_body
         })
 
@@ -43,7 +42,7 @@ def extract_body():
 
 
 # =======================================
-#  ROUTE 2: Rebuild translated HTML
+# ROUTE 2: Rebuild translated HTML
 # =======================================
 @app.route("/rebuild-styles", methods=["POST"])
 def rebuild_styles():
@@ -58,9 +57,9 @@ def rebuild_styles():
         soup_original = BeautifulSoup(original_body, "html.parser")
         soup_translated = BeautifulSoup(translated_text, "html.parser")
 
-        # Replace visible text only, keep styles
-        original_tags = soup_original.find_all(["h1","h2","h3","h4","p","span","a","li","strong","em"])
-        translated_tags = soup_translated.find_all(["h1","h2","h3","h4","p","span","a","li","strong","em"])
+        # Replace text nodes while preserving structure and styles
+        original_tags = soup_original.find_all(["h1", "h2", "h3", "h4", "p", "span", "a", "li", "strong", "em"])
+        translated_tags = soup_translated.find_all(["h1", "h2", "h3", "h4", "p", "span", "a", "li", "strong", "em"])
 
         for o_tag, t_tag in zip(original_tags, translated_tags):
             if t_tag and t_tag.get_text(strip=True):
@@ -77,7 +76,7 @@ def rebuild_styles():
 
 
 # =======================================
-#  Health Check & Root
+# Root (Health check)
 # =======================================
 @app.route("/", methods=["GET"])
 def root():
@@ -90,5 +89,5 @@ def root():
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8080))
-    print(f"🚀 Running unified HTML service on port {port}")
+    print(f"🚀 Running HTML translator microservice on port {port}")
     app.run(host="0.0.0.0", port=port)
