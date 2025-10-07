@@ -24,9 +24,10 @@ def extract_body():
         # Save original (with styles)
         original_body = str(body)
 
-        # Remove inline styles, classes, IDs, etc.
+        # 🧹 Remove inline styles, classes, IDs from all tags INCLUDING <body>
         for tag in body.find_all(True):
             tag.attrs = {}
+        body.attrs = {}  # Also clean the <body> tag itself
 
         clean_body = str(body)
 
