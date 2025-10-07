@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: html-processor-api
+    env: python
+    plan: free # შეგიძლიათ შეცვალოთ ფასიანი პაკეტით საჭიროებისას
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn app:app"
