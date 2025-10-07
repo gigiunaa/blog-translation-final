@@ -1,93 +1,95 @@
 from flask import Flask, request, jsonify
-from bs4 import BeautifulSoup
-import os
-import traceback
+from bs4 import BeautifulSoup, NavigableString
 
+# Flask აპლიკაციის ინიციალიზაცია
 app = Flask(__name__)
 
-# =======================================
-# ROUTE 1: Extract <body> — fully cleaned
-# =======================================
-@app.route("/extract-body", methods=["POST"])
-def extract_body():
-    try:
-        data = request.get_json()
-        html = data.get("html")
-        if not html:
-            return jsonify({"success": False, "error": "Missing HTML"}), 400
+# --- ფუნქცია 1: HTML-ის გასუფთავება ---
+def sanitize_html(html_body):
+    """
+    აშორებს სტილის ატრიბუტებს (class, style), მაგრამ ინარჩუნებს
+    სტრუქტურას და მნიშვნელოვან ატრიბუტებს (href, src).
+    """
+    if not html_body:
+        return ""
+        
+    soup = BeautifulSoup(html_body, 'html.parser')
+    attributes_to_keep = ['href', 'src', 'alt', 'id']
+    
+    for tag in soup.find_all(True):
+        kept_attrs = {}
+        if tag.attrs:
+            for attr, value in tag.attrs.items():
+                if attr in attributes_to_keep:
+                    kept_attrs[attr] = value
+            tag.attrs = kept_attrs
+            
+    return str(soup)
 
-        soup = BeautifulSoup(html, "html.parser")
-        body = soup.find("body")
-        if not body:
-            return jsonify({"success": False, "error": "No <body> found"}), 400
+# --- ფუნქცია 2: სტილების აღდგენა ---
+def restore_styles_to_translated_html(original_styled_html, translated_clean_html):
+    """
+    იღებს საწყის სტილიან და ნათარგმნ სუფთა HTML-ს.
+    ნათარგმნი ტექსტი გადააქვს საწყის სტრუქტურაში სტილების აღსადგენად.
+    """
+    if not original_styled_html or not translated_clean_html:
+        return original_styled_html
 
-        original_body = str(body)
+    original_soup = BeautifulSoup(original_styled_html, 'html.parser')
+    translated_soup = BeautifulSoup(translated_clean_html, 'html.parser')
 
-        # Remove all attributes recursively (style, class, id, data-*, etc.)
-        for tag in body.find_all(True):
-            for attr in list(tag.attrs.keys()):
-                del tag[attr]
+    def sync_text_nodes(original_element, translated_element):
+        original_children = list(original_element.children)
+        translated_children = list(translated_element.children)
 
-        clean_body = str(body)
+        for i in range(min(len(original_children), len(translated_children))):
+            orig_child, trans_child = original_children[i], translated_children[i]
 
-        return jsonify({
-            "success": True,
-            "clean_body": clean_body,
-            "original_body": original_body
-        })
+            if orig_child.name is not None and trans_child.name is not None and orig_child.name == trans_child.name:
+                sync_text_nodes(orig_child, trans_child)
+            elif isinstance(orig_child, NavigableString) and isinstance(trans_child, NavigableString):
+                if orig_child.string and orig_child.string.strip():
+                    orig_child.string.replace_with(trans_child.string)
 
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({"success": False, "error": str(e)}), 500
+    sync_text_nodes(original_soup, translated_soup)
+    return str(original_soup)
 
+# --- API მისამართები (Endpoints) ---
 
-# =======================================
-# ROUTE 2: Rebuild translated HTML
-# =======================================
-@app.route("/rebuild-styles", methods=["POST"])
-def rebuild_styles():
-    try:
-        data = request.get_json()
-        original_body = data.get("original_body")
-        translated_text = data.get("translated_text")
+@app.route('/sanitize', methods=['POST'])
+def handle_sanitize():
+    """
+    API მისამართი HTML-ის გასასუფთავებლად.
+    მოელის JSON-ს: {"html": "<body>..."}
+    აბრუნებს JSON-ს: {"clean_html": "<p>..."}
+    """
+    data = request.get_json()
+    if not data or 'html' not in data:
+        return jsonify({"error": "მოთხოვნაში აკლია 'html' ველი"}), 400
+    
+    html_input = data['html']
+    clean_html = sanitize_html(html_input)
+    
+    return jsonify({"clean_html": clean_html})
 
-        if not original_body or not translated_text:
-            return jsonify({"success": False, "error": "Missing fields"}), 400
+@app.route('/restore-styles', methods=['POST'])
+def handle_restore_styles():
+    """
+    API მისამართი სტილების აღსადგენად.
+    მოელის JSON-ს: {"original_html": "...", "translated_html": "..."}
+    აბრუნებს JSON-ს: {"final_html": "..."}
+    """
+    data = request.get_json()
+    if not data or 'original_html' not in data or 'translated_html' not in data:
+        return jsonify({"error": "მოთხოვნაში აკლია 'original_html' ან 'translated_html' ველი"}), 400
+    
+    original_html = data['original_html']
+    translated_html = data['translated_html']
+    
+    final_html = restore_styles_to_translated_html(original_html, translated_html)
+    
+    return jsonify({"final_html": final_html})
 
-        soup_original = BeautifulSoup(original_body, "html.parser")
-        soup_translated = BeautifulSoup(translated_text, "html.parser")
-
-        # Replace text nodes while preserving structure and styles
-        original_tags = soup_original.find_all(["h1", "h2", "h3", "h4", "p", "span", "a", "li", "strong", "em"])
-        translated_tags = soup_translated.find_all(["h1", "h2", "h3", "h4", "p", "span", "a", "li", "strong", "em"])
-
-        for o_tag, t_tag in zip(original_tags, translated_tags):
-            if t_tag and t_tag.get_text(strip=True):
-                o_tag.string = t_tag.get_text(strip=True)
-
-        return jsonify({
-            "success": True,
-            "translated_html": str(soup_original)
-        })
-
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-# =======================================
-# Root (Health check)
-# =======================================
-@app.route("/", methods=["GET"])
-def root():
-    return jsonify({
-        "service": "HTML Extractor & Styler",
-        "endpoints": ["/extract-body", "/rebuild-styles"],
-        "status": "running"
-    })
-
-
-if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8080))
-    print(f"🚀 Running HTML translator microservice on port {port}")
-    app.run(host="0.0.0.0", port=port)
+# აპლიკაციის გაშვება (Render.com ამას არ იყენებს, ის Gunicorn-ს იყენებს)
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
