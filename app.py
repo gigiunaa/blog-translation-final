@@ -1,5 +1,5 @@
-from flask import Flask, request, jsonify, Response # <<<< 1. დავამატეთ Response იმპორტი
-
+# <<<< ცვლილება 1: "from flask" ხაზის განახლება >>>>
+from flask import Flask, request, jsonify, Response 
 from bs4 import BeautifulSoup, NavigableString
 
 # Flask აპლიკაციის ინიციალიზაცია
@@ -15,7 +15,8 @@ def sanitize_html(html_body):
         return ""
         
     soup = BeautifulSoup(html_body, 'html.parser')
-    attributes_to_keep = ['href', 'src', 'alt', 'id', 'title'] # დავამატე title, ყოველი შემთხვევისთვის
+    # დავამატე 'title', რადგან ის შეიძლება მნიშვნელოვანი იყოს
+    attributes_to_keep = ['href', 'src', 'alt', 'id', 'title']
     
     for tag in soup.find_all(True):
         kept_attrs = {}
@@ -27,7 +28,7 @@ def sanitize_html(html_body):
             
     return str(soup)
 
-# --- ფუნქცია 2: სტილების აღდგენა (განახლებული ლოგიკა უკეთესი სიზუსტისთვის) ---
+# --- <<<< ცვლილება 2: სტილების აღდგენის ფუნქციის ლოგიკის გაუმჯობესება >>>> ---
 def restore_styles_to_translated_html(original_styled_html, translated_clean_html):
     """
     იღებს საწყის სტილიან და ნათარგმნ სუფთა HTML-ს.
@@ -39,13 +40,11 @@ def restore_styles_to_translated_html(original_styled_html, translated_clean_htm
     original_soup = BeautifulSoup(original_styled_html, 'html.parser')
     translated_soup = BeautifulSoup(translated_clean_html, 'html.parser')
 
-    # ვიპოვოთ ყველა ტექსტური ფრაგმენტი ორივე დოკუმენტში
+    # ეს მეთოდი უფრო საიმედოა - პირდაპირ ცვლის ტექსტურ ფრაგმენტებს
     original_text_nodes = [node for node in original_soup.find_all(string=True) if node.strip()]
     translated_text_nodes = [node for node in translated_soup.find_all(string=True) if node.strip()]
 
-    # შევცვალოთ ტექსტები თანმიმდევრობით
     for i in range(min(len(original_text_nodes), len(translated_text_nodes))):
-        # ვცვლით მხოლოდ იმ შემთხვევაში, თუ ტექსტი ნამდვილად არსებობს
         if original_text_nodes[i] and translated_text_nodes[i]:
             original_text_nodes[i].replace_with(str(translated_text_nodes[i]))
         
@@ -53,31 +52,30 @@ def restore_styles_to_translated_html(original_styled_html, translated_clean_htm
 
 # --- API მისამართები (Endpoints) ---
 
-# --- /sanitize მისამართი (მცირე შესწორებით, რომ მხოლოდ body-სთან იმუშაოს) ---
 @app.route('/sanitize', methods=['POST'])
 def handle_sanitize():
     """
     API მისამართი HTML-ის გასასუფთავებლად.
-    მოელის JSON-ს: {"html": "<body>..."}
-    აბრუნებს JSON-ს: {"clean_html": "<p>..."}
+    მოელის JSON-ს: {"html": "..."}
+    აბრუნებს JSON-ს: {"clean_html": "..."}
     """
     data = request.get_json()
     if not data or 'html' not in data:
         return jsonify({"error": "მოთხოვნაში აკლია 'html' ველი"}), 400
     
     html_input = data['html']
-    
-    # დავრწმუნდეთ, რომ მხოლოდ body-ს შიგთავსს ვამუშავებთ
+
+    # დავრწმუნდეთ, რომ მხოლოდ body-სთან ვმუშაობთ
     soup = BeautifulSoup(html_input, 'html.parser')
     body_content = soup.find('body')
     if not body_content:
-        body_content = soup # თუ body თეგი არ არის, ვიღებთ მთლიან დოკუმენტს
-        
+        body_content = soup
+    
     clean_html = sanitize_html(str(body_content))
     
     return jsonify({"clean_html": clean_html})
 
-# --- <<<< 2. მთავარი ცვლილება აქ არის >>>> ---
+# --- <<<< ცვლილება 3: /restore-styles ენდპოინტის სრული ჩანაცვლება >>>> ---
 @app.route('/restore-styles', methods=['POST'])
 def handle_restore_styles():
     """
@@ -87,7 +85,6 @@ def handle_restore_styles():
     """
     data = request.get_json()
     if not data or 'original_html' not in data or 'translated_html' not in data:
-        # შეცდომის დაბრუნებაც Response ობიექტით
         return Response("{\"error\": \"მოთხოვნაში აკლია 'original_html' ან 'translated_html' ველი\"}", status=400, mimetype='application/json')
     
     original_html = data['original_html']
@@ -106,10 +103,8 @@ def handle_restore_styles():
     
     final_html_string = restore_styles_to_translated_html(str(original_body), str(translated_body))
     
-    # შედეგს ვაბრუნებთ როგორც სუფთა HTML ტექსტს
+    # შედეგს ვაბრუნებთ როგორც სუფთა HTML ტექსტს, UTF-8 კოდირებით
     return Response(final_html_string, mimetype='text/html; charset=utf-8')
-
-# --- <<<< ცვლილება აქ მთავრდება >>>> ---
 
 # აპლიკაციის გაშვება (Render.com ამას არ იყენებს, ის Gunicorn-ს იყენებს)
 if __name__ == '__main__':
