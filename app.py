@@ -1,5 +1,5 @@
 # <<<< ცვლილება 1: "from flask" ხაზის განახლება >>>>
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response 
 from bs4 import BeautifulSoup, NavigableString
 
 # Flask აპლიკაციის ინიციალიზაცია
@@ -13,11 +13,11 @@ def sanitize_html(html_body):
     """
     if not html_body:
         return ""
-
+        
     soup = BeautifulSoup(html_body, 'html.parser')
     # დავამატე 'title', რადგან ის შეიძლება მნიშვნელოვანი იყოს
     attributes_to_keep = ['href', 'src', 'alt', 'id', 'title']
-
+    
     for tag in soup.find_all(True):
         kept_attrs = {}
         if tag.attrs:
@@ -25,7 +25,7 @@ def sanitize_html(html_body):
                 if attr in attributes_to_keep:
                     kept_attrs[attr] = value
             tag.attrs = kept_attrs
-
+            
     return str(soup)
 
 # --- <<<< ცვლილება 2: სტილების აღდგენის ფუნქციის ლოგიკის გაუმჯობესება >>>> ---
@@ -47,10 +47,11 @@ def restore_styles_to_translated_html(original_styled_html, translated_clean_htm
     for i in range(min(len(original_text_nodes), len(translated_text_nodes))):
         if original_text_nodes[i] and translated_text_nodes[i]:
             original_text_nodes[i].replace_with(str(translated_text_nodes[i]))
-
+        
     return str(original_soup)
 
 # --- API მისამართები (Endpoints) ---
+
 @app.route('/sanitize', methods=['POST'])
 def handle_sanitize():
     """
@@ -61,7 +62,7 @@ def handle_sanitize():
     data = request.get_json()
     if not data or 'html' not in data:
         return jsonify({"error": "მოთხოვნაში აკლია 'html' ველი"}), 400
-
+    
     html_input = data['html']
 
     # დავრწმუნდეთ, რომ მხოლოდ body-სთან ვმუშაობთ
@@ -69,9 +70,9 @@ def handle_sanitize():
     body_content = soup.find('body')
     if not body_content:
         body_content = soup
-
+    
     clean_html = sanitize_html(str(body_content))
-
+    
     return jsonify({"clean_html": clean_html})
 
 # --- <<<< ცვლილება 3: /restore-styles ენდპოინტის სრული ჩანაცვლება >>>> ---
@@ -84,31 +85,24 @@ def handle_restore_styles():
     """
     data = request.get_json()
     if not data or 'original_html' not in data or 'translated_html' not in data:
-        return Response(
-            "{\"error\": \"მოთხოვნაში აკლია 'original_html' ან 'translated_html' ველი\"}",
-            status=400,
-            mimetype='application/json'
-        )
-
+        return Response("{\"error\": \"მოთხოვნაში აკლია 'original_html' ან 'translated_html' ველი\"}", status=400, mimetype='application/json')
+    
     original_html = data['original_html']
     translated_html = data['translated_html']
-
+    
     # დავრწმუნდეთ, რომ ორივე შემთხვევაში მხოლოდ body-სთან ვმუშაობთ
     original_soup = BeautifulSoup(original_html, 'html.parser')
     original_body = original_soup.find('body')
     if not original_body:
         original_body = original_soup
-
+        
     translated_soup = BeautifulSoup(translated_html, 'html.parser')
     translated_body = translated_soup.find('body')
     if not translated_body:
         translated_body = translated_soup
-
-    final_html_string = restore_styles_to_translated_html(
-        str(original_body),
-        str(translated_body)
-    )
-
+    
+    final_html_string = restore_styles_to_translated_html(str(original_body), str(translated_body))
+    
     # შედეგს ვაბრუნებთ როგორც სუფთა HTML ტექსტს, UTF-8 კოდირებით
     return Response(final_html_string, mimetype='text/html; charset=utf-8')
 
