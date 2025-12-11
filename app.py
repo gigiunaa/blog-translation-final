@@ -1,26 +1,24 @@
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, Response
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse, parse_qs, urlunparse
+from urllib.parse import urlparse, parse_qs, urlunparse, unquote
+import re
+import json
 
 app = Flask(__name__)
 
 # --- დამხმარე ფუნქცია: URL-ის დამუშავება ---
 def process_url(href, lang, my_domain="gegidze.com"):
-    # 1. Google Redirect-ის მოცილება
-    if "google.com/url" in href and "q=" in href:
-        try:
-            parsed = urlparse(href)
-            query = parse_qs(parsed.query)
-            if 'q' in query:
-                href = query['q'][0]
-        except Exception as e:
-            print(f"URL parsing error: {e}")
+    # Google Redirect (Regex-ით)
+    google_pattern = r'[?&]q=([^&]+)'
+    if "google.com/url" in href:
+        match = re.search(google_pattern, href)
+        if match:
+            href = unquote(match.group(1))
 
-    # 2. ენის პრეფიქსის დამატება (Localization)
+    # Localization
     if lang and lang != 'en':
         try:
             parsed = urlparse(href)
-            # ვამოწმებთ არის თუ არა შიდა ლინკი
             is_internal = my_domain in parsed.netloc or (not parsed.netloc and parsed.path)
             
             if is_internal:
@@ -28,62 +26,52 @@ def process_url(href, lang, my_domain="gegidze.com"):
                     new_path = f'/{lang}{parsed.path}' if parsed.path.startswith('/') else f'/{lang}/{parsed.path}'
                     href = urlunparse((parsed.scheme, parsed.netloc, new_path, parsed.params, parsed.query, parsed.fragment))
         except Exception as e:
-            print(f"Localization error: {e}")
+            print(f"Link error: {e}")
 
     return href
 
-# --- მთავარი ფუნქცია: მხოლოდ ლინკების შეცვლა ---
+# --- მთავარი ფუნქცია ---
 def clean_and_localize_links(html_content, lang):
     if not html_content:
         return ""
 
     soup = BeautifulSoup(html_content, 'html.parser')
     
-    # ვეძებთ და ვცვლით მხოლოდ ლინკებს
     for a in soup.find_all('a', href=True):
         original_href = a['href']
         new_href = process_url(original_href, lang)
         a['href'] = new_href
         
-        # SEO: External Links
         if "gegidze.com" not in new_href and not new_href.startswith('/') and not new_href.startswith('#'):
             a['target'] = '_blank'
             a['rel'] = 'noopener noreferrer'
 
-    # ვაბრუნებთ მთლიან სტრუქტურას (<html>...</html>)
+    # აქ მნიშვნელოვანია: str(soup) აბრუნებს სუფთა HTML-ს, მაგრამ JSON-ისთვის escape სჭირდება
     return str(soup)
 
 # --- Endpoints ---
 
 @app.route('/clean-links', methods=['POST'])
 def handle_clean_links():
-    """
-    Input JSON: { "html": "...", "lang": "de" }
-    Output JSON: { "html": "..." }  <-- აქ შევცვალე გასაღები
-    """
     data = request.get_json()
     if not data or 'html' not in data:
-        return jsonify({"error": "Missing 'html' field"}), 400
+        return Response('"error":"Missing html"', status=400, mimetype='text/plain')
     
     html_input = data['html']
     lang = data.get('lang', 'en')
     
-    # ამუშავებს მხოლოდ ლინკებს, სტრუქტურა რჩება ხელშეუხებელი
+    # ვიღებთ დამუშავებულ HTML-ს
     result_html = clean_and_localize_links(html_input, lang)
     
-    # ვაბრუნებთ ისევ "html" გასაღებით, რომ Make-ში მარტივი იყოს
-    return jsonify({"html": result_html})
-
-# (ძველი ენდპოინტები სურვილისამებრ)
-@app.route('/sanitize', methods=['POST'])
-def handle_sanitize():
-    data = request.get_json()
-    return jsonify({"clean_html": data.get('html', '')}) 
-
-@app.route('/restore-styles', methods=['POST'])
-def handle_restore_styles():
-    data = request.get_json()
-    return Response(data.get('original_html', ''), mimetype='text/html; charset=utf-8')
+    # JSON-ის "Escape" რომ გაუკეთოს (ბრჭყალებს \ დაუმატოს), ვიყენებთ json.dumps-ს
+    escaped_html = json.dumps(result_html) 
+    
+    # ვაწყობთ ზუსტად იმ სტრინგს, რაც გინდა: "html":"<html>..."
+    # json.dumps-ს მოაქვს ბრჭყალები თავში და ბოლოში, ამიტომ პირდაპირ ვიყენებთ
+    final_response_string = f'"html":{escaped_html}'
+    
+    # ვაბრუნებთ როგორც უბრალო ტექსტს (text/plain)
+    return Response(final_response_string, mimetype='text/plain')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
