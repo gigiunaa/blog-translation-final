@@ -2,23 +2,20 @@ from flask import Flask, request, jsonify, Response
 from bs4 import BeautifulSoup, NavigableString
 from urllib.parse import urlparse, parse_qs, urlunparse, unquote
 import re
+import json  # <<<< ეს დავამატეთ, რომ json.dumps გამოვიყენოთ
 
 # Flask აპლიკაციის ინიციალიზაცია
 app = Flask(__name__)
 
-# ==========================================
-# 1. ძველი ფუნქციები (უცვლელი)
-# ==========================================
-
+# ========================================================
+# 1. ძველი ფუნქცია: Sanitize (ატრიბუტების გასუფთავება)
+# ========================================================
 def sanitize_html(html_body):
-    """
-    აშორებს სტილის ატრიბუტებს, მაგრამ ინარჩუნებს სტრუქტურას.
-    """
     if not html_body:
         return ""
         
     soup = BeautifulSoup(html_body, 'html.parser')
-    attributes_to_keep = ['href', 'src', 'alt', 'id', 'title']
+    attributes_to_keep = ['href', 'src', 'alt', 'id', 'title', 'target']
     
     for tag in soup.find_all(True):
         kept_attrs = {}
@@ -30,10 +27,10 @@ def sanitize_html(html_body):
             
     return str(soup)
 
+# ========================================================
+# 2. ძველი ფუნქცია: Restore Styles (სტილების აღდგენა)
+# ========================================================
 def restore_styles_to_translated_html(original_styled_html, translated_clean_html):
-    """
-    აღადგენს სტილებს ნათარგმნ ტექსტზე.
-    """
     if not original_styled_html or not translated_clean_html:
         return original_styled_html
 
@@ -49,23 +46,21 @@ def restore_styles_to_translated_html(original_styled_html, translated_clean_htm
         
     return str(original_soup)
 
-# ==========================================
-# 2. ახალი ფუნქცია (ლინკების გასწორება)
-# ==========================================
-
+# ========================================================
+# 3. ახალი ფუნქცია: Clean Links (ლინკების გასწორება)
+# ========================================================
 def process_url(href, lang, my_domain="gegidze.com"):
-    # 1. Google Redirect-ის მოცილება (Regex-ით, ყველაზე საიმედო)
+    # Regex-ით ვიღებთ Google-ის ლინკს
     google_pattern = r'[?&]q=([^&]+)'
     if "google.com/url" in href:
         match = re.search(google_pattern, href)
         if match:
             href = unquote(match.group(1))
 
-    # 2. ენის პრეფიქსის დამატება (Localization)
+    # Localization
     if lang and lang != 'en':
         try:
             parsed = urlparse(href)
-            # ვამოწმებთ არის თუ არა შიდა ლინკი
             is_internal = my_domain in parsed.netloc or (not parsed.netloc and parsed.path)
             
             if is_internal:
@@ -78,9 +73,6 @@ def process_url(href, lang, my_domain="gegidze.com"):
     return href
 
 def clean_and_localize_links(html_content, lang):
-    """
-    ცვლის მხოლოდ ლინკებს. არ ეხება HTML-ის სტრუქტურას.
-    """
     if not html_content:
         return ""
 
@@ -91,17 +83,17 @@ def clean_and_localize_links(html_content, lang):
         new_href = process_url(original_href, lang)
         a['href'] = new_href
         
-        # SEO: External Links
+        # SEO target blank
         if "gegidze.com" not in new_href and not new_href.startswith('/') and not new_href.startswith('#'):
             a['target'] = '_blank'
             a['rel'] = 'noopener noreferrer'
 
-    # აბრუნებს სრულ HTML-ს (head, body, styles - ყველაფერს)
     return str(soup)
 
-# ==========================================
-# 3. API Endpoints
-# ==========================================
+
+# ========================================================
+# API Endpoints
+# ========================================================
 
 @app.route('/sanitize', methods=['POST'])
 def handle_sanitize():
@@ -111,9 +103,7 @@ def handle_sanitize():
     
     html_input = data['html']
     soup = BeautifulSoup(html_input, 'html.parser')
-    body_content = soup.find('body')
-    if not body_content:
-        body_content = soup
+    body_content = soup.find('body') or soup
     
     clean_html = sanitize_html(str(body_content))
     return jsonify({"clean_html": clean_html})
@@ -122,7 +112,7 @@ def handle_sanitize():
 def handle_restore_styles():
     data = request.get_json()
     if not data or 'original_html' not in data or 'translated_html' not in data:
-        return Response('{"error": "Missing fields"}', status=400, mimetype='application/json')
+        return Response("{\"error\": \"Missing fields\"}", status=400, mimetype='application/json')
     
     original_body = BeautifulSoup(data['original_html'], 'html.parser').find('body') or BeautifulSoup(data['original_html'], 'html.parser')
     translated_body = BeautifulSoup(data['translated_html'], 'html.parser').find('body') or BeautifulSoup(data['translated_html'], 'html.parser')
@@ -130,19 +120,26 @@ def handle_restore_styles():
     final_html_string = restore_styles_to_translated_html(str(original_body), str(translated_body))
     return Response(final_html_string, mimetype='text/html; charset=utf-8')
 
+# --- Clean Links (სპეციფიკური ფორმატით) ---
 @app.route('/clean-links', methods=['POST'])
 def handle_clean_links():
     data = request.get_json()
     if not data or 'html' not in data:
-        return jsonify({"error": "Missing 'html' field"}), 400
+        return Response('"error":"Missing html"', status=400, mimetype='text/plain')
     
     html_input = data['html']
     lang = data.get('lang', 'en')
     
-    # აქ ვიძახებთ ახალ ფუნქციას, რომელიც სტრუქტურას ინარჩუნებს
+    # 1. ვასწორებთ ლინკებს
     result_html = clean_and_localize_links(html_input, lang)
     
-    return jsonify({"html": result_html})
+    # 2. ვაკეთებთ JSON Escape-ს (ბრჭყალებისთვის)
+    escaped_html = json.dumps(result_html) 
+    
+    # 3. ვაბრუნებთ ზუსტად იმ ფორმატს: "html":"<html>..." (ფრჩხილების გარეშე)
+    final_response_string = f'"html":{escaped_html}'
+    
+    return Response(final_response_string, mimetype='text/plain')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
