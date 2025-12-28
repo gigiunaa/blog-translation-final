@@ -28,25 +28,32 @@ def sanitize_html(html_body):
     return str(soup)
 
 # ========================================================
-# 2. Restore Styles (ძველი — პრობლემური, მაგრამ უცვლელი)
+# 2. Restore Styles (შეცვლილი — REPLACE, არა MERGE)
 # ========================================================
-def restore_styles_to_translated_html(original_styled_html, translated_clean_html):
-    if not original_styled_html or not translated_clean_html:
-        return original_styled_html
+def restore_styles_to_translated_html(original_html, translated_html):
+    """
+    NEW LOGIC:
+    - No text merging
+    - No node index mapping
+    - Translated HTML fully replaces text content
+    - Prevents duplicated text (EN+DE)
+    """
 
-    original_soup = BeautifulSoup(original_styled_html, 'html.parser')
-    translated_soup = BeautifulSoup(translated_clean_html, 'html.parser')
+    if not translated_html:
+        return original_html
 
-    original_text_nodes = [node for node in original_soup.find_all(string=True) if node.strip()]
-    translated_text_nodes = [node for node in translated_soup.find_all(string=True) if node.strip()]
+    translated_soup = BeautifulSoup(translated_html, 'html.parser')
+    translated_body = translated_soup.find('body')
 
-    for i in range(min(len(original_text_nodes), len(translated_text_nodes))):
-        original_text_nodes[i].replace_with(str(translated_text_nodes[i]))
-        
-    return str(original_soup)
+    # თუ GPT აბრუნებს body-ს — პირდაპირ ვაბრუნებთ
+    if translated_body:
+        return str(translated_body)
+
+    # თუ body საერთოდ არ აქვს (edge case)
+    return str(translated_soup)
 
 # ========================================================
-# 3. Restore Styles V2 (უფრო უსაფრთხო, მაგრამ მაინც merge-ლოჯიკა)
+# 3. Restore Styles V2 (დარჩა, მაგრამ აღარ გამოიყენება)
 # ========================================================
 def restore_styles_v2(original_html, translated_html):
     if not original_html or not translated_html:
@@ -75,7 +82,6 @@ def restore_styles_v2(original_html, translated_html):
         original_el = original_elements[i]
         translated_el = translated_elements[i]
 
-        # ძველი ტექსტური ნოდების წაშლა
         for child in list(original_el.children):
             if isinstance(child, NavigableString):
                 child.extract()
@@ -135,7 +141,7 @@ def clean_and_localize_links(html_content, lang):
     return str(soup)
 
 # ========================================================
-# 5. Clean Links — Team Up (იდენტური ლოგიკა)
+# 5. Clean Links — Team Up (უცვლელი)
 # ========================================================
 def process_url_teamup(href, lang, my_domain="helloteamup.com"):
     google_pattern = r'[?&]q=([^&]+)'
@@ -208,35 +214,8 @@ def handle_restore_styles():
             mimetype='application/json'
         )
 
-    original_body = (
-        BeautifulSoup(data['original_html'], 'html.parser').find('body')
-        or data['original_html']
-    )
-    translated_body = (
-        BeautifulSoup(data['translated_html'], 'html.parser').find('body')
-        or data['translated_html']
-    )
-
     return Response(
         restore_styles_to_translated_html(
-            str(original_body),
-            str(translated_body)
-        ),
-        mimetype='text/html; charset=utf-8'
-    )
-
-@app.route('/restore-styles-v2', methods=['POST'])
-def handle_restore_styles_v2():
-    data = request.get_json()
-    if not data or 'original_html' not in data or 'translated_html' not in data:
-        return Response(
-            json.dumps({"error": "Missing original_html or translated_html"}),
-            status=400,
-            mimetype='application/json'
-        )
-
-    return Response(
-        restore_styles_v2(
             data['original_html'],
             data['translated_html']
         ),
@@ -247,41 +226,19 @@ def handle_restore_styles_v2():
 def handle_clean_links():
     data = request.get_json()
     if not data or 'html' not in data:
-        return Response(
-            '"error":"Missing html"',
-            status=400,
-            mimetype='text/plain'
-        )
+        return Response('"error":"Missing html"', status=400, mimetype='text/plain')
 
-    result_html = clean_and_localize_links(
-        data['html'],
-        data.get('lang', 'en')
-    )
-
-    return Response(
-        f'"html":{json.dumps(result_html)}',
-        mimetype='text/plain'
-    )
+    result_html = clean_and_localize_links(data['html'], data.get('lang', 'en'))
+    return Response(f'"html":{json.dumps(result_html)}', mimetype='text/plain')
 
 @app.route('/clean-links-teamup', methods=['POST'])
 def handle_clean_links_teamup():
     data = request.get_json()
     if not data or 'html' not in data:
-        return Response(
-            '"error":"Missing html"',
-            status=400,
-            mimetype='text/plain'
-        )
+        return Response('"error":"Missing html"', status=400, mimetype='text/plain')
 
-    result_html = clean_and_localize_links_teamup(
-        data['html'],
-        data.get('lang', 'en')
-    )
-
-    return Response(
-        f'"html":{json.dumps(result_html)}',
-        mimetype='text/plain'
-    )
+    result_html = clean_and_localize_links_teamup(data['html'], data.get('lang', 'en'))
+    return Response(f'"html":{json.dumps(result_html)}', mimetype='text/plain')
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
