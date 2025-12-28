@@ -28,7 +28,7 @@ def sanitize_html(html_body):
     return str(soup)
 
 # ========================================================
-# 2. Restore Styles (ძველი — უცვლელი)
+# 2. Restore Styles (ძველი — პრობლემური, მაგრამ უცვლელი)
 # ========================================================
 def restore_styles_to_translated_html(original_styled_html, translated_clean_html):
     if not original_styled_html or not translated_clean_html:
@@ -46,7 +46,7 @@ def restore_styles_to_translated_html(original_styled_html, translated_clean_htm
     return str(original_soup)
 
 # ========================================================
-# 3. Restore Styles V2 (ახალი — სტრუქტურა უსაფრთხოდ)
+# 3. Restore Styles V2 (უფრო უსაფრთხო, მაგრამ მაინც merge-ლოჯიკა)
 # ========================================================
 def restore_styles_v2(original_html, translated_html):
     if not original_html or not translated_html:
@@ -75,6 +75,7 @@ def restore_styles_v2(original_html, translated_html):
         original_el = original_elements[i]
         translated_el = translated_elements[i]
 
+        # ძველი ტექსტური ნოდების წაშლა
         for child in list(original_el.children):
             if isinstance(child, NavigableString):
                 child.extract()
@@ -100,7 +101,14 @@ def process_url(href, lang, my_domain="gegidze.com"):
             
             if is_internal and not parsed.path.startswith(f'/{lang}/'):
                 new_path = f'/{lang}{parsed.path}' if parsed.path.startswith('/') else f'/{lang}/{parsed.path}'
-                href = urlunparse((parsed.scheme, parsed.netloc, new_path, parsed.params, parsed.query, parsed.fragment))
+                href = urlunparse((
+                    parsed.scheme,
+                    parsed.netloc,
+                    new_path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment
+                ))
         except Exception as e:
             print(f"Localization error: {e}")
 
@@ -116,7 +124,11 @@ def clean_and_localize_links(html_content, lang):
         new_href = process_url(a['href'], lang)
         a['href'] = new_href
         
-        if "gegidze.com" not in new_href and not new_href.startswith('/') and not new_href.startswith('#'):
+        if (
+            "gegidze.com" not in new_href
+            and not new_href.startswith('/')
+            and not new_href.startswith('#')
+        ):
             a['target'] = '_blank'
             a['rel'] = 'noopener noreferrer'
 
@@ -139,7 +151,14 @@ def process_url_teamup(href, lang, my_domain="helloteamup.com"):
             
             if is_internal and not parsed.path.startswith(f'/{lang}/'):
                 new_path = f'/{lang}{parsed.path}' if parsed.path.startswith('/') else f'/{lang}/{parsed.path}'
-                href = urlunparse((parsed.scheme, parsed.netloc, new_path, parsed.params, parsed.query, parsed.fragment))
+                href = urlunparse((
+                    parsed.scheme,
+                    parsed.netloc,
+                    new_path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment
+                ))
         except Exception as e:
             print(f"Localization error: {e}")
 
@@ -155,7 +174,11 @@ def clean_and_localize_links_teamup(html_content, lang):
         new_href = process_url_teamup(a['href'], lang)
         a['href'] = new_href
         
-        if "helloteamup.com" not in new_href and not new_href.startswith('/') and not new_href.startswith('#'):
+        if (
+            "helloteamup.com" not in new_href
+            and not new_href.startswith('/')
+            and not new_href.startswith('#')
+        ):
             a['target'] = '_blank'
             a['rel'] = 'noopener noreferrer'
 
@@ -179,13 +202,26 @@ def handle_sanitize():
 def handle_restore_styles():
     data = request.get_json()
     if not data or 'original_html' not in data or 'translated_html' not in data:
-        return Response('{"error":"Missing fields"}', status=400, mimetype='application/json')
+        return Response(
+            '{"error":"Missing fields"}',
+            status=400,
+            mimetype='application/json'
+        )
 
-    original_body = BeautifulSoup(data['original_html'], 'html.parser').find('body') or data['original_html']
-    translated_body = BeautifulSoup(data['translated_html'], 'html.parser').find('body') or data['translated_html']
+    original_body = (
+        BeautifulSoup(data['original_html'], 'html.parser').find('body')
+        or data['original_html']
+    )
+    translated_body = (
+        BeautifulSoup(data['translated_html'], 'html.parser').find('body')
+        or data['translated_html']
+    )
 
     return Response(
-        restore_styles_to_translated_html(str(original_body), str(translated_body)),
+        restore_styles_to_translated_html(
+            str(original_body),
+            str(translated_body)
+        ),
         mimetype='text/html; charset=utf-8'
     )
 
@@ -200,7 +236,10 @@ def handle_restore_styles_v2():
         )
 
     return Response(
-        restore_styles_v2(data['original_html'], data['translated_html']),
+        restore_styles_v2(
+            data['original_html'],
+            data['translated_html']
+        ),
         mimetype='text/html; charset=utf-8'
     )
 
@@ -208,19 +247,41 @@ def handle_restore_styles_v2():
 def handle_clean_links():
     data = request.get_json()
     if not data or 'html' not in data:
-        return Response('"error":"Missing html"', status=400, mimetype='text/plain')
+        return Response(
+            '"error":"Missing html"',
+            status=400,
+            mimetype='text/plain'
+        )
 
-    result_html = clean_and_localize_links(data['html'], data.get('lang', 'en'))
-    return Response(f'"html":{json.dumps(result_html)}', mimetype='text/plain')
+    result_html = clean_and_localize_links(
+        data['html'],
+        data.get('lang', 'en')
+    )
+
+    return Response(
+        f'"html":{json.dumps(result_html)}',
+        mimetype='text/plain'
+    )
 
 @app.route('/clean-links-teamup', methods=['POST'])
 def handle_clean_links_teamup():
     data = request.get_json()
     if not data or 'html' not in data:
-        return Response('"error":"Missing html"', status=400, mimetype='text/plain')
+        return Response(
+            '"error":"Missing html"',
+            status=400,
+            mimetype='text/plain'
+        )
 
-    result_html = clean_and_localize_links_teamup(data['html'], data.get('lang', 'en'))
-    return Response(f'"html":{json.dumps(result_html)}', mimetype='text/plain')
+    result_html = clean_and_localize_links_teamup(
+        data['html'],
+        data.get('lang', 'en')
+    )
+
+    return Response(
+        f'"html":{json.dumps(result_html)}',
+        mimetype='text/plain'
+    )
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
